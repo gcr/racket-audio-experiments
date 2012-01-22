@@ -194,6 +194,18 @@
        [else (error "Corrupt file or other file error")]))
   #:c-id ov_read)
 
+(define (vorbis-read-bytes-exact!
+         m n bigendianp wordsize signedp bitstream-ptr)
+  (let loop ([n n]
+             [sofar '()])
+    (if (zero? n)
+        (apply bytes-append (reverse sofar))
+        (let ([buf (vorbis-read-bytes! m n bigendianp wordsize signedp bitstream-ptr)])
+          (if (eof-object? buf)
+              (if (null? sofar) eof (apply bytes-append (reverse sofar)))
+              (loop (- n (bytes-length buf))
+                    (cons buf sofar)))))))
+
 (define/native vorbis-current-time
   (_fun [vf : _pointer] -> _double)
    #:c-id ov_time_tell)

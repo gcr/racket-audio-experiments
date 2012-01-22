@@ -19,16 +19,6 @@
 (define BUFFER-SIZE (* 4096 8))
 
 (define bitstream-ptr (make-bitstream-ptr))
-(define (read-exactly-n-bytes n)
-  (let loop ([n n]
-             [sofar '()])
-    (if (zero? n)
-        (apply bytes-append (reverse sofar))
-        (let ([buf (vorbis-read-bytes! m n 0 2 1 bitstream-ptr)])
-          (if (eof-object? buf)
-              (if (null? sofar) eof (apply bytes-append (reverse sofar)))
-              (loop (- n (bytes-length buf))
-                    (cons buf sofar)))))))
 
 ;; Make our source
 (define source (car (gen-sources 1)))
@@ -36,7 +26,7 @@
 ;; Make our buffer queues
 (define buffer-queue (make-queue))
 (for ([buffer (in-list (gen-buffers NUM-BUFFERS))])
-     (let ([buf (read-exactly-n-bytes BUFFER-SIZE)])
+     (let ([buf (vorbis-read-bytes-exact! m BUFFER-SIZE 0 2 1 bitstream-ptr)])
        (printf "Loading ~a bytes to buffer ~a\n" (bytes-length buf) buffer)
        (buffer-data buffer AL_FORMAT_STEREO16
                     buf
@@ -52,7 +42,7 @@
 (printf "State: ~a\n" (source-source-state source))
 
 (let loop ()
-  #;(set-source-pitch! source
+  (set-source-pitch! source
                      (+ 1.0
                         (/ (sin (/ (current-inexact-milliseconds) 1000))
                            50)))
@@ -64,7 +54,10 @@
              (let ([buffer (dequeue! buffer-queue)])
                (source-unqueue-buffers! source (list buffer))
                ;; Fill it up
-               (let ([buf (read-exactly-n-bytes BUFFER-SIZE)])
+               (let ([buf (vorbis-read-bytes-exact! m
+                                                    BUFFER-SIZE
+                                                    0 2 1
+                                                    bitstream-ptr)])
                  (unless (eof-object? buf)
                    (buffer-data buffer AL_FORMAT_STEREO16
                                 buf
