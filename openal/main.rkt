@@ -4,7 +4,8 @@
          (for-syntax (only-in ffi/unsafe regexp-replaces))
          ffi/unsafe/define
          ffi/unsafe/alloc
-         ffi/vector)
+         ffi/vector
+         data/queue)
 
 (provide (all-defined-out))
 
@@ -148,7 +149,7 @@
   #:c-id alGenBuffers)
 
 (define/native delete-buffers!
-  (_fun (num-buffers buffers) ::
+  (_fun (buffers) ::
         [num-buffers : _int = (length buffers)]
         [buffers : (_list i _int)]
         -> _void)
@@ -445,3 +446,72 @@
 (define/native close-device!
   (_fun [device : _pointer] -> _bool)
   #:c-id alcCloseDevice)
+
+
+;;;;;;;;;;;;;;;; "Lowish-level" Streaming API
+
+;; Streams a raw binary input port to an OpenAL source.
+;; Returns the thread that plays the noise.
+;; Note that "at-end-of-loop" may run in a different thread.
+(define (stream-port-to-source port source format frequency
+                               [at-end-of-loop (λ() #f)]
+                               [num-buffers 5]
+                               [buffer-size (* 4096 8)]
+                               [poll-interval 0.1])
+  ;; Streaming through OpenAL requires that we have a queue of buffers.
+  ;; When OpenAL finishes playing one buffer, we take it out of the queue,
+  ;; decode the vorbis file into the buffer, and re-queue it.
+
+  ;; Make our initial buffer queues, filling them with data. There are
+  ;; two queues here -- the internal queue maintained by OpenAL (which
+  ;; we can't inspect) and this buffer-queue.
+  (define buffer-queue (make-queue))
+  (for ([buffer (in-list (gen-buffers num-buffers))])
+                                        ; Load data
+       (buffer-data buffer format (read-bytes buffer-size port) frequency)
+                                        ; Queue buffer in the source
+       (source-queue-buffers! source (list buffer))
+       (enqueue! buffer-queue buffer))
+
+  (define t
+    (thread
+     (λ()
+       (let loop ()
+         ;;(collect-garbage)
+         (if (zero? (source-buffers-processed source))
+             ;; Nothing to do
+             (begin (sleep poll-interval)
+                    (loop))
+             ;; We're finished playing a buffer so fill it up again
+             (begin
+               ;; Take it out
+               (let ([buffer (dequeue! buffer-queue)])
+                 (source-unqueue-buffers! source (list buffer))
+                 ;; Refill with vorbis data
+                 (let ([buf (read-bytes buffer-size port)])
+                   (if (eof-object? buf)
+                       (begin
+                         ;; At the end of the file -- restart
+                         (when (at-end-of-loop) (loop)))
+                       (begin
+                         ;; Not at the end
+                         ;; Load our data back into the buffer
+                         (buffer-data buffer format buf frequency)
+                         ;; Put it back on both queues
+                         (source-queue-buffers! source (list buffer))
+                         (enqueue! buffer-queue buffer)
+                         (loop))))))))
+       (let loop ()
+         (unless (= (source-buffers-processed source)
+                    (source-buffers-queued source))
+           (sleep poll-interval)
+           (loop))))))
+
+  (thread (λ()
+            (sync (thread-dead-evt t))
+            ;; When that thread exits, free its buffers!
+            (source-unqueue-buffers! source (queue->list buffer-queue))
+            (delete-buffers! (queue->list buffer-queue))))
+  ; Return the thread
+  t)
+
