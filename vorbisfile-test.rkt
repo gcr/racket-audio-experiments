@@ -3,13 +3,16 @@
          (except-in "openal/main.rkt" define/native)
          data/queue)
 
+(define filename (vector-ref (current-command-line-arguments) 0))
+(printf "Playing ~a\n" filename)
+
 ;; Initialize OpenAL (see the OpenAL guide)
 (define device (open-device #f))
 (define context (create-context device))
 (set-current-context context)
 
-;; Open vorbis file!
-(define m (open-vorbis-file "/tmp/siberia.ogg"))
+;; Open the file!
+(define m (open-vorbis-file filename))
 
 (printf "Rate: ~a Channels: ~a\n"
         (vorbis-frequency m)
@@ -21,7 +24,7 @@
 
 ;; Streaming through OpenAL requires that we have a queue of buffers.
 ;; When OpenAL finishes playing one buffer, we take it out of the queue,
-;; decode the vorbis file, and re-queue it.
+;; decode the vorbis file into the buffer, and re-queue it.
 (define NUM-BUFFERS 5)
 (define BUFFER-SIZE (* 4096 8))
 
@@ -44,18 +47,24 @@
 (displayln "Playing...")
 (play-source source)
 
+;; (thread (λ()
+;;           (let loop ()
+;;               (set-source-pitch!
+;;                source
+;;                (+ 1.0
+;;                   (/ (sin (/ (current-milliseconds) 100))
+;;                      50)))
+;;               (sleep 0.05)
+;;               (loop))))
+
 (let loop ()
-  (collect-garbage)
-  (newline)
+  ;(collect-garbage)
   ;; Uncomment for fun! :D
-  #;
-  (set-source-pitch! source
-                     (+ 1.0
-                        (/ (sin (/ (current-inexact-milliseconds) 200))
-                           50)))
+
   (if (zero? (source-buffers-processed source))
       ; Nothing to do
       (begin (sleep 0.1)
+             (newline)
              (loop))
       ; We're finished playing a buffer so fill it up again
       (begin (displayln "Refilling buffer")
@@ -70,6 +79,7 @@
                        (vorbis-seek! m 0.0)
                        (loop))
                      (begin
+                       ;; Not at the end
                        ;; Load our data back into the buffer
                        (buffer-data buffer AL_FORMAT_STEREO16
                                     buf
@@ -82,9 +92,8 @@
                        (loop))))))))
 
 (printf "File ended\n")
-;; Not really -- the last few buffers are still playing but frankly I
-;; don't care.
-
+;; Well, not really -- the last few buffers are still playing but
+;; frankly I don't care.
 
 (set-current-context #f)
 (destroy-context! context)
