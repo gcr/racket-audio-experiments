@@ -150,7 +150,7 @@
 ;;; FUNCTIONS ;;;
 
 (define/native close-vorbis-file!
-  (_fun [vf : _pointer] -> _int)
+  (_fun [vf : _OggVorbis_File-pointer] -> _int)
   #:c-id ov_clear
   #:wrap (releaser))
 ;;  XXX Would this actually deallocate the OggVorbis_file ?
@@ -158,8 +158,10 @@
 
 (define/native open-vorbis-file
   (_fun [path : _path]
-        [vf : _pointer
-            = (malloc _OggVorbis_File 'interior)]
+        [vf : _OggVorbis_File-pointer
+            = (let ([file (malloc _OggVorbis_File 'interior)])
+                (set-cpointer-tag! file OggVorbis_File-tag)
+                file)]
         ;; XXX I'm doing this wrong . ... . ...
         -> [return : _int]
         -> (if (zero? return) vf #f))
@@ -167,7 +169,7 @@
   #:wrap (allocator close-vorbis-file!))
 
 (define/native vorbis-length-sec
-  (_fun [vf : _pointer]
+  (_fun [vf : _OggVorbis_File-pointer]
         [channel : _int = -1]
         -> [ret : _double]
         -> (if (= ret -131) #f ret))
@@ -175,54 +177,65 @@
 
 (define (make-bitstream-ptr) (malloc _int))
 
-(define max-buffer-size 40960)
-(define *buffer* (make-bytes max-buffer-size 0))
-
-(define/native vorbis-read-bytes!
-  (_fun (vf len bigendianp wordsize signedp bitstream) ::
-   [vf : _pointer]
-   [buf : _bytes = *buffer* #;(_u8vector o len)]
-   [len : _int = (min len max-buffer-size)]
+(define/native vorbis-read-to-byte-buf!
+  (_fun (vf buf len bigendianp wordsize signedp bitstream) ::
+   [vf : _OggVorbis_File-pointer]
+   [buf : _bytes] ; = *buffer* #;(_u8vector o len)]
+   [len : _int]
    [bigendianp : _int]
    [wordsize : _int]
    [signedp : _int]
    [bitstream : _pointer]
-   -> [byteswritten : _int]
-   -> (cond
-       [(zero? byteswritten) eof]
-       [(> byteswritten 0) (subbytes buf 0 byteswritten)]
-       [else (error "Corrupt file or other file error")]))
+   -> [byteswritten : _int])
   #:c-id ov_read)
 
-(define (vorbis-read-bytes-exact!
-         m n bigendianp wordsize signedp bitstream-ptr)
-  (let loop ([n n]
-             [sofar '()])
-    (if (zero? n)
-        (apply bytes-append (reverse sofar))
-        (let ([buf (vorbis-read-bytes! m n bigendianp wordsize signedp bitstream-ptr)])
-          (if (eof-object? buf)
-              (if (null? sofar) eof (apply bytes-append (reverse sofar)))
-              (loop (- n (bytes-length buf))
-                    (cons buf sofar)))))))
+; Convenience function: reads to a shared buffer, and returns eof
+(define max-buffer-size 40960)
+(define *buffer* (make-bytes max-buffer-size 0))
+(define (vorbis-read-bytes! vf len bigendianp wordsize signedp bitstream)
+  (define byteswritten (vorbis-read-to-byte-buf! vf
+                        *buffer* (min len max-buffer-size) bigendianp
+                        wordsize signedp bitstream))
+  (cond [(zero? byteswritten) eof]
+        [(> byteswritten 0) (subbytes *buffer* 0 byteswritten)]
+        [else (error "Corrupt file or other file error")]))
+
+;; This makes a port that returns raw PCM data from
+;; the given vorbis file.
+(define (make-vorbis-input-port vf bigendianp wordsize signedp)
+  (define bitstream-ptr (make-bitstream-ptr))
+  (make-input-port "vorbis-stream"
+                   (λ(bytes)
+                     (let ([nbytes
+                            (vorbis-read-to-byte-buf!
+                             vf bytes (bytes-length bytes)
+                             bigendianp wordsize signedp bitstream-ptr)])
+                       (if (zero? nbytes) eof nbytes)))
+                   ;; Unpeekable
+                   #f
+                   ;; Be wary of closing these ports.
+                   ;; Closing such a port will likely cause
+                   ;; other calls involving this file to segfault.
+                   (λ() (close-vorbis-file! vf))))
+
 
 (define/native vorbis-current-time
-  (_fun [vf : _pointer] -> _double)
+  (_fun [vf : _OggVorbis_File-pointer] -> _double)
    #:c-id ov_time_tell)
 
 (define/native vorbis-seek!
-  (_fun [vf : _pointer] [s : _double]
+  (_fun [vf : _OggVorbis_File-pointer] [s : _double]
         -> [return : _int]
         -> (zero? return))
   #:c-id ov_time_seek_lap)
 
 (define/native vorbis-avg-bitrate
-  (_fun [vf : _pointer] [i : _int = -1]
+  (_fun [vf : _OggVorbis_File-pointer] [i : _int = -1]
         -> _long)
   #:c-id ov_bitrate)
 
 (define/native _ov_info
-  (_fun [vf : _pointer] [i : _int = -1]
+  (_fun [vf : _OggVorbis_File-pointer] [i : _int = -1]
         -> _vorbis_info-pointer)
   #:c-id ov_info)
 
@@ -232,7 +245,7 @@
   (vorbis_info-rate (_ov_info vf)))
 
 (define/native _ov_comment
-  (_fun [vf : _pointer] [i : _int = -1]
+  (_fun [vf : _OggVorbis_File-pointer] [i : _int = -1]
         -> _vorbis_comment-pointer)
   #:c-id ov_comment)
 
@@ -260,43 +273,43 @@
 
 
 #|
-(defvorbis ov_clear [vf : _pointer] -> _int)
-(defvorbis ov_fopen [path: _path] [vf : _pointer] -> _int)
-(defvorbis ov_test_open [vf : _pointer] -> _int)
-(defvorbis ov_bitrate [vf: _pointer] [i : _int] -> _long)
-(defvorbis ov_bitrate_instant [vf : _pointer] -> _long)
-(defvorbis ov_streams [vf : _pointer] -> _long)
-(defvorbis ov_seekable [vf : _pointer] -> _long)
-(defvorbis ov_serialnumber [vf : _pointer] [i : _int] -> _long)
+(defvorbis ov_clear [vf : _OggVorbis_File-pointer] -> _int)
+(defvorbis ov_fopen [path: _path] [vf : _OggVorbis_File-pointer] -> _int)
+(defvorbis ov_test_open [vf : _OggVorbis_File-pointer] -> _int)
+(defvorbis ov_bitrate [vf: _OggVorbis_File-pointer] [i : _int] -> _long)
+(defvorbis ov_bitrate_instant [vf : _OggVorbis_File-pointer] -> _long)
+(defvorbis ov_streams [vf : _OggVorbis_File-pointer] -> _long)
+(defvorbis ov_seekable [vf : _OggVorbis_File-pointer] -> _long)
+(defvorbis ov_serialnumber [vf : _OggVorbis_File-pointer] [i : _int] -> _long)
 
-(defvorbis ov_raw_total [vf : _pointer] [i : _int] -> _int64)
-(defvorbis ov_pcm_total [vf : _pointer] [i : _int] -> _int64)
-(defvorbis ov_time_total [vf : _pointer] [i : _int] -> _double)
+(defvorbis ov_raw_total [vf : _OggVorbis_File-pointer] [i : _int] -> _int64)
+(defvorbis ov_pcm_total [vf : _OggVorbis_File-pointer] [i : _int] -> _int64)
+(defvorbis ov_time_total [vf : _OggVorbis_File-pointer] [i : _int] -> _double)
 
-(defvorbis ov_raw_seek [vf : _pointer] [pos : _int64] -> _int)
-(defvorbis ov_pcm_seek [vf : _pointer] [pos : _int64] -> _int)
-(defvorbis ov_pcm_seek_page [vf : _pointer] [pos : _int64] -> _int)
-(defvorbis ov_time_seek [vf : _pointer] [pos : _double] -> _int)
-(defvorbis ov_time_seek_page [vf : _pointer] [pos : _double] -> _int)
+(defvorbis ov_raw_seek [vf : _OggVorbis_File-pointer] [pos : _int64] -> _int)
+(defvorbis ov_pcm_seek [vf : _OggVorbis_File-pointer] [pos : _int64] -> _int)
+(defvorbis ov_pcm_seek_page [vf : _OggVorbis_File-pointer] [pos : _int64] -> _int)
+(defvorbis ov_time_seek [vf : _OggVorbis_File-pointer] [pos : _double] -> _int)
+(defvorbis ov_time_seek_page [vf : _OggVorbis_File-pointer] [pos : _double] -> _int)
 
-(defvorbis ov_raw_seek_lap [vf : _pointer] [pos : _int64] -> _int)
-(defvorbis ov_pcm_seek_lap [vf : _pointer] [pos : _int64] -> _int)
-(defvorbis ov_pcm_seek_page_lap [vf : _pointer] [pos : _int64] -> _int)
-(defvorbis ov_time_seek_lap [vf : _pointer] [pos : _double] -> _int)
-(defvorbis ov_time_seek_page_lap [vf : _pointer] [pos : _double] -> _int)
+(defvorbis ov_raw_seek_lap [vf : _OggVorbis_File-pointer] [pos : _int64] -> _int)
+(defvorbis ov_pcm_seek_lap [vf : _OggVorbis_File-pointer] [pos : _int64] -> _int)
+(defvorbis ov_pcm_seek_page_lap [vf : _OggVorbis_File-pointer] [pos : _int64] -> _int)
+(defvorbis ov_time_seek_lap [vf : _OggVorbis_File-pointer] [pos : _double] -> _int)
+(defvorbis ov_time_seek_page_lap [vf : _OggVorbis_File-pointer] [pos : _double] -> _int)
 
-(defvorbis ov_raw_tell [vf : _pointer] -> _int64)
-(defvorbis ov_pcm_tell [vf : _pointer] -> _int64)
-(defvorbis ov_time_tell [vf : _pointer] -> _double)
+(defvorbis ov_raw_tell [vf : _OggVorbis_File-pointer] -> _int64)
+(defvorbis ov_pcm_tell [vf : _OggVorbis_File-pointer] -> _int64)
+(defvorbis ov_time_tell [vf : _OggVorbis_File-pointer] -> _double)
 
-(defvorbis ov_info [vf : _pointer] [link : _int] -> _vorbis_info)
-(defvorbis ov_comment [vf : _pointer] [link : _int] -> _vorbis_comment)
+(defvorbis ov_info [vf : _OggVorbis_File-pointer] [link : _int] -> _vorbis_info)
+(defvorbis ov_comment [vf : _OggVorbis_File-pointer] [link : _int] -> _vorbis_comment)
 
-#;(defvorbis ov_read_float [vf : _pointer] ... -> _long)
-#;(defvorbis ov_read_filter [vf : _pointer] ... -> _long)
+#;(defvorbis ov_read_float [vf : _OggVorbis_File-pointer] ... -> _long)
+#;(defvorbis ov_read_filter [vf : _OggVorbis_File-pointer] ... -> _long)
 
 (defvorbis ov_read
-  [vf : _pointer]
+  [vf : _OggVorbis_File-pointer]
   [buffer : (_bytes length)]
   [length : _int]
   [bigendianp : _int]
@@ -307,7 +320,7 @@
   -> (values buffer return)
 
 
-(defvorbis ov_crosslap [vf1 : _pointer] [vf2 : _pointer] -> _int)
-(defvorbis ov_halfrate [vf : _pointer] [flag : _int] -> _int)
-(defvorbis ov_halfrate_p [vf : _pointer] -> _int)
+(defvorbis ov_crosslap [vf1 : _OggVorbis_File-pointer] [vf2 : _OggVorbis_File-pointer] -> _int)
+(defvorbis ov_halfrate [vf : _OggVorbis_File-pointer] [flag : _int] -> _int)
+(defvorbis ov_halfrate_p [vf : _OggVorbis_File-pointer] -> _int)
 |#
