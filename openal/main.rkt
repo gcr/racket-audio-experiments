@@ -175,7 +175,7 @@
   #:c-id alGenSources)
 
 (define/native delete-sources!
-  (_fun (num-sources sources) ::
+  (_fun (sources) ::
         [num-sources : _int = (length sources)]
         [sources : (_list i _int)]
         -> _void)
@@ -457,7 +457,8 @@
                                [at-end-of-loop (λ() #f)]
                                [num-buffers 5]
                                [buffer-size (* 4096 8)]
-                               [poll-interval 0.1])
+                               [poll-interval 0.1]
+                               [cleanup (λ()(void))])
   ;; Streaming through OpenAL requires that we have a queue of buffers.
   ;; When OpenAL finishes playing one buffer, we take it out of the queue,
   ;; decode the vorbis file into the buffer, and re-queue it.
@@ -511,7 +512,8 @@
             (sync (thread-dead-evt t))
             ;; When that thread exits, free its buffers!
             (source-unqueue-buffers! source (queue->list buffer-queue))
-            (delete-buffers! (queue->list buffer-queue))))
+            (delete-buffers! (queue->list buffer-queue))
+            (cleanup)))
   ; Return the thread
   t)
 
