@@ -326,9 +326,9 @@
 
 (define-prop-definer "listener" define-listener-prop)
 (define-listener-prop AL_GAIN alGetListenerf alListenerf)
-(define-listener-prop AL_POSITION alGetListenerf alListenerf)
-(define-listener-prop AL_VELOCITY alGetListenerf alListenerf)
-(define-listener-prop AL_ORIENTATION alGetListenerf alListenerf)
+(define-listener-prop AL_POSITION alGetListener3f alListener3f)
+(define-listener-prop AL_VELOCITY alGetListener3f alListener3f)
+(define-listener-prop AL_ORIENTATION alGetListener3f alListener3f)
 
 ;;;;;;;;;;;;;;;;;;;;; Buffers
 
@@ -447,6 +447,18 @@
   (_fun [device : _pointer] -> _bool)
   #:c-id alcCloseDevice)
 
+
+(define/native set-distance-model!
+  (_fun [model : _int] -> _void)
+  #:c-id alDistanceModel)
+
+(define/native set-doppler-factor!
+  (_fun [value : _float] -> _void)
+  #:c-id alDopplerFactor)
+
+(define/native set-speed-of-sound!
+  (_fun [value : _float] -> _void)
+  #:c-id alSpeedOfSound)
 
 ;;;;;;;;;;;;;;;; "Lowish-level" Streaming API
 
