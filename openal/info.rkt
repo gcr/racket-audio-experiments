@@ -6,5 +6,4 @@
 (define categories '(media))
 (define repositories '("4.x"))
 (define scribblings '(("openal.scrbl" ())))
-(define release-notes '((p "added documentation, "
-                           "added 'stream-port-to-source'")))
+(define release-notes '((p "Added license.")))
