@@ -168,7 +168,14 @@
   #:c-id ov_fopen
   #:wrap (allocator close-vorbis-file!))
 
-(define/native vorbis-length-sec
+(define/native vorbis-length-samples
+  (_fun [vf : _OggVorbis_File-pointer]
+        [channel : _int = -1]
+        -> [ret : _int64]
+        -> (if (= ret -131) #f ret))
+  #:c-id ov_pcm_total)
+
+(define/native vorbis-length-time
   (_fun [vf : _OggVorbis_File-pointer]
         [channel : _int = -1]
         -> [ret : _double]
@@ -223,11 +230,21 @@
   (_fun [vf : _OggVorbis_File-pointer] -> _double)
    #:c-id ov_time_tell)
 
-(define/native vorbis-seek!
+(define/native vorbis-current-samples
+  (_fun [vf : _OggVorbis_File-pointer] -> _int64)
+   #:c-id ov_pcm_tell)
+
+(define/native vorbis-seek-time!
   (_fun [vf : _OggVorbis_File-pointer] [s : _double]
         -> [return : _int]
         -> (zero? return))
   #:c-id ov_time_seek_lap)
+
+(define/native vorbis-seek-samples!
+  (_fun [vf : _OggVorbis_File-pointer] [s : _int64]
+        -> [return : _int]
+        -> (zero? return))
+  #:c-id ov_pcm_seek_lap)
 
 (define/native vorbis-avg-bitrate
   (_fun [vf : _OggVorbis_File-pointer] [i : _int = -1]
