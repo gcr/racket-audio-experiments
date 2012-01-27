@@ -1,6 +1,6 @@
 #lang racket
-(require (except-in "vorbisfile.rkt" define/native)
-         (except-in "openal/main.rkt" define/native))
+(require (planet gcr/openal)
+         (planet gcr/vorbisfile))
 
 (define filename (vector-ref (current-command-line-arguments) 0))
 (printf "Playing file ~a\n" filename)

@@ -7,7 +7,8 @@
          ffi/unsafe/alloc
          ffi/vector)
 
-(provide (all-defined-out))
+(provide (except-out (all-defined-out)
+                     define/native))
 
 (define libvorbis
   (ffi-lib "libvorbisfile"))

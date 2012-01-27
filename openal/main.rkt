@@ -7,7 +7,12 @@
          ffi/vector
          data/queue)
 
-(provide (all-defined-out))
+(provide (except-out (all-defined-out)
+                     define/native
+                     define-source-prop
+                     define-prop-definer
+                     define-listener-prop
+                     define-buffer-prop))
 
 (define libopenal
   (ffi-lib "libopenal"))
